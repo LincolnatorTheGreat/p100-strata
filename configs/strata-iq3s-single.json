@@ -26,7 +26,11 @@
     "--kv-resident",
     "32768",
     "--vram-reserve-mib",
-    "896"
+    "896",
+    "--conversation-cache-mib",
+    "2048",
+    "--conversation-cache-slots",
+    "6"
   ],
   "gpu": 0,
   "cwd": "/storage/fastSATA/strata/run",
@@ -46,5 +50,7 @@
     "STRATA_SM60_D20_SUB": "1",
     "STRATA_DOWN_F16": "1",
     "STRATA_B6_F16": "1"
-  }
+  },
+  "slot_save_path": "/storage/fastSATA/strata/sessions",
+  "api_monitor": true
 }
