@@ -40,9 +40,10 @@ DIR = Path(os.environ.get("STRATA_PREFIX_DIR", "/storage/fastSATA/strata/session
 MODEL = os.environ.get("STRATA_MODEL", "qwen3.8-flash-next-iq3s-strata")
 MIN_TOKENS_GUESS = 2048 * 3          # characters; shorter prompt starts are not worth a file
 HERMES_MEMORY_RULE = "\n" + "\u2550" * 10   # Hermes: the "══════" line that opens the MEMORY block
-# Hermes system-prompt sections that differ per session, in any order: the project's AGENTS.md/CLAUDE.md, the git
-# snapshot of the working directory, memory, and the runtime environment (date, cwd). The prefix ends at the first.
-HERMES_SESSION_MARKERS = ("\n# Project Context\n", "\nWorkspace (snapshot", HERMES_MEMORY_RULE,
+# Hermes system-prompt sections that differ per session or change often, in any order: the project's AGENTS.md/
+# CLAUDE.md, the git snapshot of the working directory, the skills list (new or edited skills), memory, and the
+# runtime environment (date, cwd). The prefix ends at the first.
+HERMES_SESSION_MARKERS = ("\n# Project Context\n", "\nWorkspace (snapshot", "\n## Skills\n", HERMES_MEMORY_RULE,
                           "\n# Hermes runtime environment")
 
 
@@ -212,6 +213,11 @@ def cmd_build(a):
             print(f"{t['key']}: save failed ({st}): {r.get('error', {}).get('message', r)}")
             continue
         print(f"{t['key']}: {r['n_saved']} tokens, {r['n_written'] / 1e6:.0f} MB, {time.time() - t0:.0f} s")
+    # each warm-up took the engine's one pin: give it back to the primary template
+    primary = (DIR / "primary").read_text().strip() if (DIR / "primary").exists() else None
+    p = next((t for t in templates() if t["key"] == primary), None)
+    if p and (DIR / f"{primary}.bin").exists():
+        print(f"pinned {primary} (primary): {pin(p)}")
 
 
 def cmd_load(a):
