@@ -1,3 +1,4 @@
 /strata/build-p100/
 /strata/build*/
 /strata/.venv/
+/result*

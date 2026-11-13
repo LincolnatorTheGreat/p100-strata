@@ -142,6 +142,32 @@ document, starting from the same layer split:
 On these 2-3-bit formats the fp16 tile kernel measured slower than emulated `dp4a`, unlike the decode kernels in 0007
 and 0010.
 
+## One P100, built with Nix
+
+`flake.nix` (repo root; `strata/flake.nix` is upstream's, CUDA 13, no Pascal) builds the engine for sm_60 on CUDA 12.6
+with nixpkgs' gcc 13, and the pinned llama.cpp as a flake input, so the build needs no network and no system CUDA:
+
+    sudo ./tools/setup-nix-cuda-cache.sh        # once: NVIDIA's binary cache (cache.nixos-cuda.org)
+    nix build -o result --cores 6               # result/bin/strata, strata-serve, strata-tool
+
+The NVIDIA driver is the host's: the wrapper links `libcuda` from `/usr/lib` (Arch). ggml's CPU code is built for
+AVX2 (`STRATA_PORTABLE`), because Nix's compiler wrapper drops `-march=native`.
+
+`configs/strata-iq3s-single.json`: ISTA's original GSQ-RCO **IQ3_S**, one Tesla P100 16 GB, Xeon E5-2687W v3 (AVX2,
+no AVX-512), 62.7 GiB RAM, 262k context, int8 KV streamed (`--kv-resident 32768`, the K/V in 3.1 GiB of pinned
+RAM), patches 0001-0012 with the decode flags above. Measured on 2026-11-12 (3 prompts x 2 rounds, 500 tokens,
+thinking on, temp 0.6; `tools/strata_bench.py` for prompts):
+
+| | 64k, KV in VRAM | 128k | 192k | 256k | **256k, KV streamed** |
+|---|---:|---:|---:|---:|---:|
+| experts in VRAM | 4,583 | 4,081 | 3,570 | 3,067 | **4,632** |
+| real chat decode (tok/s) | 36.8 | 35.0 | 34.3 | 33.8 | **37.3** |
+
+Without the decode flags, 64k measured 32.6 tok/s. Prompts: 316 / 345 / 343 tok/s at 4k / 16k / 32k tokens,
+281 tok/s for 166k new tokens on a 232k prompt. Needle recall at 32k, 128k and 240k: 3 of 3. The config adds
+`--vram-reserve-mib 896` (the engine's own advice after a request started with 316 MiB of VRAM free; ~100 fewer
+experts). `STRATA_Q8_SM60` is left off: this file's dense tensors are K-quants and IQ4_XS, not Q8_0.
+
 ## License
 
 MIT, same as Strata; upstream's copyright notice is kept in `LICENSE`. Not
