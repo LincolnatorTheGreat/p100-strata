@@ -30,7 +30,9 @@
     "--conversation-cache-mib",
     "2048",
     "--conversation-cache-slots",
-    "6"
+    "6",
+    "--conversation-cache-min-free-mib",
+    "1024"
   ],
   "gpu": 0,
   "cwd": "/storage/fastSATA/strata/run",

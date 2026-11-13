@@ -40,6 +40,10 @@ DIR = Path(os.environ.get("STRATA_PREFIX_DIR", "/storage/fastSATA/strata/session
 MODEL = os.environ.get("STRATA_MODEL", "qwen3.8-flash-next-iq3s-strata")
 MIN_TOKENS_GUESS = 2048 * 3          # characters; shorter prompt starts are not worth a file
 HERMES_MEMORY_RULE = "\n" + "\u2550" * 10   # Hermes: the "══════" line that opens the MEMORY block
+# Hermes system-prompt sections that differ per session, in any order: the project's AGENTS.md/CLAUDE.md, the git
+# snapshot of the working directory, memory, and the runtime environment (date, cwd). The prefix ends at the first.
+HERMES_SESSION_MARKERS = ("\n# Project Context\n", "\nWorkspace (snapshot", HERMES_MEMORY_RULE,
+                          "\n# Hermes runtime environment")
 
 
 def http_json(method, path, body=None, timeout=900):
@@ -58,13 +62,11 @@ def http_json(method, path, body=None, timeout=900):
 def cut_point(system: str) -> tuple[int, str]:
     """Where the per-session part of a system prompt begins: (chars, rule)."""
     if system.startswith("You are Hermes Agent"):
-        anchor = system.find("</available_skills>")
-        i = system.find(HERMES_MEMORY_RULE, anchor if anchor >= 0 else 0)
-        if i > 0:
-            return i, "hermes: before the memory block"
-        i = system.find("# Hermes runtime environment")
-        if i > 0:
-            return i, "hermes: before the runtime environment"
+        hits = [(system.find(m), m) for m in HERMES_SESSION_MARKERS]
+        hits = [(i, m) for i, m in hits if i > 0]
+        if hits:
+            i, m = min(hits)
+            return i, f"hermes: before {m.strip().split(chr(10))[0][:30]!r}"
     return len(system), "whole system message"
 
 
@@ -217,7 +219,9 @@ def cmd_load(a):
     if not ts:
         print("no session files")
         return
-    for t in ts:                                       # oldest first; the newest ends up live and pinned
+    primary = (DIR / "primary").read_text().strip() if (DIR / "primary").exists() else None
+    ts.sort(key=lambda t: t["key"] == primary)          # the primary last: it stays live and gets the one pin
+    for t in ts:
         st, r = http_json("POST", "/slots/0?action=restore", {"filename": f"{t['key']}.bin"})
         if st != 200:
             print(f"{t['key']}: restore failed ({st}): {r.get('error', {}).get('message', r)}")
@@ -226,12 +230,21 @@ def cmd_load(a):
     print(f"pinned {ts[-1]['key']}: {pin(ts[-1])}")
 
 
+def cmd_primary(a):
+    if not (DIR / f"{a.key}.request.json").exists():
+        sys.exit(f"no template {a.key}")
+    (DIR / "primary").write_text(a.key + "\n")
+    print(f"primary: {a.key} (loaded last and pinned on the next load)")
+
+
 def cmd_status(a):
+    primary = (DIR / "primary").read_text().strip() if (DIR / "primary").exists() else None
     for t in templates():
         f = DIR / f"{t['key']}.bin"
         size = f"{f.stat().st_size / 1e6:.0f} MB" if f.exists() else "not built"
-        print(f"{t['key']}  {t['client']:6}  {t['tools']:2} tools  cut {t['cut']:6}/{t['system_chars']:6}  "
-              f"{t['source']:7}  {t['created']}  {size}")
+        print(f"{t['key']}{'*' if t['key'] == primary else ' '} {t['client']:6}  {t['tools']:2} tools  "
+              f"cut {t['cut']:6}/{t['system_chars']:6}  {t['source']:11}  {t['created']}  {size}")
+    print("(* = primary: pinned, never evicted; the others can be evicted by real conversations until the next load)")
 
 
 def cmd_rm(a):
@@ -256,9 +269,11 @@ def main():
     sub.add_parser("status")
     r = sub.add_parser("rm")
     r.add_argument("key")
+    p = sub.add_parser("primary", help="the template to pin (one pin per engine)")
+    p.add_argument("key")
     a = ap.parse_args()
     {"learn": cmd_learn, "capture": cmd_capture, "build": cmd_build, "load": cmd_load, "status": cmd_status,
-     "rm": cmd_rm}[a.cmd](a)
+     "rm": cmd_rm, "primary": cmd_primary}[a.cmd](a)
 
 
 if __name__ == "__main__":
